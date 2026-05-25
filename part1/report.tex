@@ -1,0 +1,256 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{parskip}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{gray!10},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+}
+
+\title{\textbf{TCSS 487 Cryptography}\\[0.4em]
+       \large Practical Project --- Cryptographic Library \& App --- Part 1}
+\author{Thienan Nguyen}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+% ─────────────────────────────────────────────────────────
+\section{Overview}
+
+This report describes Part~1 of the cryptographic library and application
+project for TCSS~487. The project is written entirely in Java with no external
+cryptographic libraries. All symmetric services are built on the SHA-3/SHAKE
+(Keccak) sponge construction as specified in FIPS~202.
+
+The submission contains three source files:
+
+\begin{itemize}[noitemsep]
+  \item \texttt{SHA3SHAKE.java} --- implementation of the SHA-3/SHAKE sponge.
+  \item \texttt{Main.java} --- command-line application offering the four
+        required services.
+  \item \texttt{App.java} --- empty placeholder class (no logic).
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────
+\section{Attribution}
+
+The Keccak-f[1600] permutation (round-constant table \texttt{RC},
+rho-rotation offsets \texttt{ROTC}, and pi lane-permutation table
+\texttt{PILN}) in \texttt{SHA3SHAKE.java} is ported, with minor adaptations,
+from Markku-Juhani O.\ Saarinen's public-domain C reference implementation
+\emph{tiny\_sha3}:
+\begin{center}
+  \url{https://github.com/mjosaarinen/tiny_sha3/blob/master/sha3.c}
+\end{center}
+The sponge wrapper, byte/lane plumbing, padding logic, and the Java public
+interface are original work.
+
+% ─────────────────────────────────────────────────────────
+\section{Compiling the Project}
+
+All source files are located in the \texttt{src/} directory. Open a terminal,
+navigate to \texttt{src/}, and run:
+
+\begin{lstlisting}
+javac SHA3SHAKE.java Main.java
+\end{lstlisting}
+
+The program is then invoked as:
+
+\begin{lstlisting}
+java Main <command> [arguments...]
+\end{lstlisting}
+
+where \texttt{<command>} is one of \texttt{hash}, \texttt{mac},
+\texttt{encrypt}, or \texttt{decrypt}.
+
+% ─────────────────────────────────────────────────────────
+\section{Services}
+
+\subsection{Service 1 --- Cryptographic Hash (SHA-3-256 and SHA-3-512)}
+
+\textbf{Command syntax:}
+\begin{lstlisting}
+java Main hash <file>
+\end{lstlisting}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{<file>} --- path to the file to be hashed.
+\end{itemize}
+
+\textbf{What it does:}
+Reads the entire file into a byte array and computes both the SHA-3-256 and
+SHA-3-512 hashes using the static \texttt{SHA3SHAKE.SHA3()} helper. Both
+digests are printed to standard output in hexadecimal.
+
+\textbf{Example:}
+\begin{lstlisting}
+java Main hash test.txt
+SHA-3-256: 91468dc1dec55577d293c47a4c092dea71a43c49a5e79064a3e0e055acedc41d
+SHA-3-512: 1f6341857b0c8ae0e59e8aff3a2cad25be1f3cd6b339b260425f8bf2585b2876...
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────
+\subsection{Service 2 --- Authentication Tag / MAC (SHAKE-128 and SHAKE-256)}
+
+\textbf{Command syntax:}
+\begin{lstlisting}
+java Main mac <file> <passphrase> <tagLengthBytes>
+\end{lstlisting}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{<file>} --- path to the file to authenticate.
+  \item \texttt{<passphrase>} --- the secret passphrase (UTF-8 string).
+  \item \texttt{<tagLengthBytes>} --- desired MAC output length in bytes
+        (e.g.\ 32 for a 256-bit tag).
+\end{itemize}
+
+\textbf{What it does:}
+Initializes a \texttt{SHA3SHAKE} sponge at each security level (128 and 256),
+absorbs the passphrase followed by the file contents, and squeezes the
+requested number of bytes. Both tags are printed in hexadecimal.
+
+\textbf{Example:}
+\begin{lstlisting}
+java Main mac test.txt "mysecret" 32
+SHAKE-128 MAC (32 bytes): a3ef5eb8a0e417c9b21953fb1ef1fe392f85039bb9945e65d701897610cc329a
+SHAKE-256 MAC (32 bytes): b26b6ee780da70653d85ee28366c160101844f7b631c9a6aca7051292d86d2b8
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────
+\subsection{Service 3 --- Symmetric Encryption}
+
+\textbf{Command syntax:}
+\begin{lstlisting}
+java Main encrypt <inputFile> <outputFile> <passphrase>
+\end{lstlisting}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{<inputFile>} --- path to the plaintext file.
+  \item \texttt{<outputFile>} --- path where the cryptogram will be written.
+  \item \texttt{<passphrase>} --- the secret passphrase (UTF-8 string).
+\end{itemize}
+
+\textbf{What it does:}
+\begin{enumerate}[noitemsep]
+  \item Derives a 128-bit symmetric key:
+        \texttt{key = SHAKE-128(passphrase, 128~bits)}.
+  \item Generates a random 128-bit (16-byte) nonce using
+        \texttt{java.security.SecureRandom}.
+  \item Initializes a SHAKE-128 sponge, absorbs the nonce then the key, and
+        squeezes a keystream equal in length to the plaintext.
+  \item XORs the keystream with the plaintext to produce the ciphertext.
+  \item Writes the cryptogram as: \textbf{nonce (16 bytes) $\|$ ciphertext}.
+\end{enumerate}
+
+\textbf{Example:}
+\begin{lstlisting}
+java Main encrypt test.txt test.enc "mysecret"
+Encrypted: test.txt -> test.enc
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────
+\subsection{Service 4 --- Symmetric Decryption}
+
+\textbf{Command syntax:}
+\begin{lstlisting}
+java Main decrypt <inputFile> <outputFile> <passphrase>
+\end{lstlisting}
+
+\begin{itemize}[noitemsep]
+  \item \texttt{<inputFile>} --- path to the cryptogram produced by
+        \texttt{encrypt}.
+  \item \texttt{<outputFile>} --- path where the recovered plaintext will be
+        written.
+  \item \texttt{<passphrase>} --- the same passphrase used during encryption.
+\end{itemize}
+
+\textbf{What it does:}
+\begin{enumerate}[noitemsep]
+  \item Re-derives the 128-bit symmetric key:
+        \texttt{key = SHAKE-128(passphrase, 128~bits)}.
+  \item Reads the first 16 bytes of the cryptogram as the nonce; the remainder
+        is the ciphertext.
+  \item Initializes a SHAKE-128 sponge, absorbs the nonce then the key, and
+        squeezes a keystream equal in length to the ciphertext.
+  \item XORs the keystream with the ciphertext to recover the plaintext.
+  \item Writes the recovered plaintext to \texttt{<outputFile>}.
+\end{enumerate}
+
+\textbf{Example:}
+\begin{lstlisting}
+java Main decrypt test.enc test.dec "mysecret"
+Decrypted: test.enc -> test.dec
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────
+\section{Implementation Notes}
+
+\subsection*{SHA3SHAKE class}
+
+The class models a plain, non-duplexing sponge over the Keccak-f[1600]
+permutation. The rate and capacity are determined by the \texttt{suffix}
+argument to \texttt{init()}:
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Mode} & \textbf{Rate (bytes)} & \textbf{Capacity (bytes)} \\
+\midrule
+SHAKE-128                  & 168 &  32 \\
+SHA-3-224                  & 144 &  56 \\
+SHA-3-256 / SHAKE-256      & 136 &  64 \\
+SHA-3-384                  & 104 &  96 \\
+SHA-3-512                  &  72 & 128 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+SHA-3 finalization uses domain byte \texttt{0x06}; SHAKE finalization uses
+\texttt{0x1F}. The pad10*1 rule is applied at the end of the absorb phase
+before the first permutation of the squeeze phase.
+
+\subsection*{Keystream cipher}
+
+The stream cipher used for encryption and decryption is SHAKE-128 seeded with
+the nonce followed by the derived key. Because SHAKE is an extendable-output
+function, it produces an arbitrarily long pseudorandom stream suitable for
+use as a stream cipher.
+
+% ─────────────────────────────────────────────────────────
+\section{Known Bugs and Limitations}
+
+\begin{itemize}[noitemsep]
+  \item The \texttt{mac} command accepts the tag length in \emph{bytes}.
+        Passing a non-integer value will cause a \texttt{NumberFormatException}.
+  \item Passphrases containing spaces must be quoted on the command line
+        (e.g.\ \texttt{"my secret"}).
+  \item Decrypting a file not produced by this program's \texttt{encrypt}
+        command will produce garbled output without warning, since no MAC
+        verification is included in the non-bonus version.
+  \item Very large files are read entirely into memory; files larger than the
+        available heap will cause an \texttt{OutOfMemoryError}.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────
+\section{References}
+
+\begin{itemize}[noitemsep]
+  \item National Institute of Standards and Technology.
+        \textit{SHA-3 Standard: Permutation-Based Hash and Extendable-Output
+        Functions}. FIPS PUB 202, August 2015.
+        \url{https://doi.org/10.6028/NIST.FIPS.202}
+  \item M.-J.\ O.\ Saarinen. \textit{tiny\_sha3} (public-domain C reference
+        implementation). \url{https://github.com/mjosaarinen/tiny_sha3/blob/master/sha3.c}
+\end{itemize}
+
+\end{document}

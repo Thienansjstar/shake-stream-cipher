@@ -1,0 +1,14 @@
+# Compiled Java
+*.class
+bin/
+
+# Submission zips and extracted folders
+*.zip
+Practical*/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.claude/
